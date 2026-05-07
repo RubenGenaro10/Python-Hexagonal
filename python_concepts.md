@@ -187,3 +187,31 @@ Aquí aplicamos un concepto clave de la Arquitectura de Software:
 * **¿Cómo lo lograste?** Si revisas el caso de uso, él pide un `TaskRepository` en su constructor, pero él **no sabe** si esos datos se guardarán en memoria, en una base de datos MySQL o en un archivo de texto. Solo sabe que puede llamar a `save()` o `get_by_id()`. 
 * **Inyección de Dependencias**: Al crear el objeto `MemoryTaskRepository` aquí afuera en el `main` y luego **"inyectarlo"** (pasarlo por parámetro) al Caso de Uso, estás delegando la responsabilidad de "crear dependencias" al punto más externo de la aplicación (el *Composition Root*). 
 * Si mañana decides cambiar tu proyecto para usar una base de datos real, solo tendrías que crear un `SqlTaskRepository`, y cambiarías *una sola línea* en `main.py` (`repository = SqlTaskRepository()`). Tu lógica de negocio en el Caso de Uso permanecería intacta y no se enteraría del cambio. ¡Ese es el poder y el objetivo principal de la Arquitectura Hexagonal!
+
+## 6. Eventos de Dominio y Múltiples Dependencias
+
+Para implementar el manejo de eventos en Arquitectura Hexagonal y Python, hicimos un par de modificaciones clave.
+
+### ¿Qué es un Evento de Dominio?
+Un evento de dominio representa *algo que ya ocurrió* en el negocio y que a otras partes del sistema les interesa saber (ej. "Tarea Creada", "Usuario Registrado"). 
+En Hexagonal, el Caso de Uso hace su trabajo principal (como guardar en BD) y luego **publica un evento**. Otras partes del sistema pueden escuchar ese evento para reaccionar asíncronamente (mandar un email, notificar por WebSockets, o enviar a otro microservicio por Kafka) sin que el Caso de Uso tenga que encargarse de eso directamente, manteniendo el bajo acoplamiento.
+
+### Múltiple Inyección en el Caso de Uso
+En `src/application/use_cases/task_manager.py` actualizamos el constructor para recibir nuestro nuevo puerto `EventPublisher`:
+```python
+    def __init__(self, repository: TaskRepository, event_publisher: EventPublisher):
+        self.repository = repository
+        self.event_publisher = event_publisher
+```
+Al igual que en Java, puedes inyectar tantas dependencias como tu Caso de Uso requiera. Lo importante es que ambas sean **Interfaces/Puertos**. Al Caso de Uso no le importa si el publicador de eventos envía datos a RabbitMQ o, como en nuestra simulación, simplemente hace un `print` en la consola (`ConsoleEventPublisher`).
+
+### Diccionarios Literales (`payload`) en Python
+Al momento de crear la tarea, emitimos el evento usando esta sintaxis:
+```python
+        self.event_publisher.publish("TaskCreated", {
+            "task_id": saved_task.id,
+            "title": saved_task.title
+        })
+```
+* **Payload (Carga Útil)**: Es un término común para los datos o contenido que viajan en un evento o petición.
+* **Sintaxis `{ "llave": valor }`**: En Python, puedes crear diccionarios "al vuelo" usando llaves, idéntico a crear un objeto JSON en JavaScript. En vez de crear una clase formal tipo `TaskCreatedEvent` (que también sería válido), pasamos un diccionario dinámico. En Java, habrías tenido que instanciar una nueva clase DTO o usar un engorroso `Map.of()`. En Python, los diccionarios literales son la forma más natural, rápida y limpia de empaquetar y transferir datos.
